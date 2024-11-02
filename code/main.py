@@ -2,10 +2,12 @@ import os
 import srt
 import wave
 import json
+import datetime
 from vosk import Model, KaldiRecognizer
 
 model_name = "vosk-model-ru-0.42"
 audio_name = "molniya_0_aud_1"
+words_per_line = 7
 
 
 # Укажите путь к модели Vosk
@@ -15,67 +17,55 @@ result_path = "../result/captions_" + audio_name + ".srt"
 
 # Загрузка модели
 if not os.path.exists(model_path):
-    print("Пожалуйста, скачайте и распакуйте модель Vosk.")
+    print("Пожалуйста, скачайте, распакуйте модель Vosk и добавьте в папку 'models' проекта.")
     exit(1)
-
-model = Model(model_path)
-rec = KaldiRecognizer(model, 16000)
-
-# Открытие аудиофайла
-# with wave.open(audio_path, "rb") as wf:
-#     if wf.getnchannels() != 1 or wf.getsampwidth() != 2 or wf.getframerate() != 16000:
-#         print("Аудиофайл должен быть в формате WAV с 16 кГц, моно.")
-#         exit(1)
-
-    # Обработка аудио и распознавание
-    # subs = []
-    # start_time = 0
-
 
 wf = wave.open(audio_path, "rb")
 
 if wf.getnchannels() != 1 or wf.getsampwidth() != 2 or wf.getframerate() != 16000:
-    print("Аудиофайл должен быть в формате WAV с 16 кГц, моно.")
+    print("Аудиофайл должен быть в формате WAV, моно.")
     exit(1)
 
-print(rec.SrtResult(wf))
+
+model = Model(model_path)
+rec = KaldiRecognizer(model, wf.getframerate())
+rec.SetWords(True)
+rec.SetPartialWords(True)
 
 
-    # while True:
-    #     data = wf.readframes(4000)
-    #     if len(data) == 0:
-    #         break
-    #     if rec.AcceptWaveform(data):
-    #         print("sr: " + rec.SrtResult(wf))
-    #     else:
-    #         print("pr: " + rec.PartialResult())
-    #
-    # print("fr: " + rec.FinalResult())
+results = []
+while True:
+    data = wf.readframes(4000)
+    
+    if len(data) == 0:
+        break
+    if rec.AcceptWaveform(data):
+        results.append(rec.Result())
+        print("r: " + rec.Result())
+    else:
+        results.append(rec.PartialResult())
+        print("pr: " + rec.PartialResult())
 
+results.append(rec.FinalResult())
+print("fr: " + rec.FinalResult())
 
+subs = []
+for res in results:
+    j_res = json.loads(res)
 
-    # while True:
-    #     data = wf.readframes(4000)
-    #     if len(data) == 0:
-    #         break
-    #     if rec.AcceptWaveform(data):
-    #         result = json.loads(rec.Result())
-            # if 'text' in result and result['text']:
-            #     end_time = start_time + 4  # Предположим, что каждая фраза длится 4 секунды
-            #     subs.append(srt.Subtitle(index=len(subs)+1, start=srt.timedelta(seconds=start_time),
-            #                               end=srt.timedelta(seconds=end_time),
-            #                               content=result['text']))
-            #     start_time = end_time
+    if not "result" in j_res:
+        continue
 
+    words = j_res["result"]
 
-    # Добавление последнего результата
-#     final_result = json.loads(rec.FinalResult())
-#     if 'text' in final_result and final_result['text']:
-#         end_time = start_time + 4
-#         subs.append(srt.Subtitle(index=len(subs)+1, start=srt.timedelta(seconds=start_time),
-#                                   end=srt.timedelta(seconds=end_time),
-#                                   content=final_result['text']))
-#
-# # Запись субтитров в файл
-# with open(result_path, "w") as f:
-#     f.write(srt.compose(subs))
+    for j in range(0, len(words), words_per_line):
+        line = words[j: j + words_per_line]
+        s = srt.Subtitle(index=len(subs),
+                         content=" ".join([l["word"] for l in line]),
+                         start=datetime.timedelta(seconds=line[0]["start"]),
+                         end=datetime.timedelta(seconds=line[-1]["end"]))
+        subs.append(s)
+
+# Запись субтитров в файл
+with open(result_path, "w") as f:
+    f.write(srt.compose(subs))
